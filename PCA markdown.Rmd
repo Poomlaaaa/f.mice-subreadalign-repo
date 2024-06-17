@@ -1,0 +1,115 @@
+---
+title: "PCA markdown"
+author: "Pumla"
+date: "2024-06-17"
+output: html_document
+---
+
+
+```{r}
+
+#Setting up environment: clean environment, free up memory and report the memory usage 
+rm(list = ls(all.names = TRUE)) 
+gc() 
+```
+
+
+```{r}
+#avoid truncated output in R console and scientific notation
+options(max.print = .Machine$integer.max, scipen = 999, stringsAsFactors = F, dplyr.summarise.inform = F)
+```
+
+
+```{r}
+#Load libraries
+library(dplyr)
+library(ggplot2)
+library(RColorBrewer)
+library(pheatmap)
+```
+
+
+```{r}
+#Set the working directory
+setwd("~/inktset1/PCA")
+```
+
+
+```{r}
+#loading files
+fpkm_data <- read.csv("FPKM.csv", header = TRUE, stringsAsFactors = FALSE)
+```
+
+```{r}
+# Read design.csv containing SampleID and Treatment
+design_data <- read.csv("Design.csv", header = TRUE, stringsAsFactors = FALSE)
+```
+
+
+```{r}
+# View the contents of fpkm_data
+View(fpkm_data)
+```
+
+```{r}
+# Display the structure of fpkm_data
+str(fpkm_data)
+```
+
+
+```{r}
+# Display the first few rows of fpkm_data
+head(fpkm_data)
+```
+
+```{r}
+# Display the structure of design_data
+str(design_data)
+```
+
+```{r}
+# Extract numeric data for PCA (assuming columns 2 to end are numeric)
+fpkm_numeric <- fpkm_data[, -1]
+```
+
+```{r}
+# Log2 transformation
+fpkm_log <- log2(fpkm_numeric + 1)
+```
+
+```{r}
+# Transpose data for PCA (assuming rows are samples and columns are features)
+fpkm_log_t <- t(fpkm_log)
+```
+
+```{r}
+# Perform PCA
+pca_result <- prcomp(fpkm_log_t, center = TRUE, scale. = FALSE)
+```
+
+```{r}
+# Extract PCA scores
+pc_scores <- as.data.frame(pca_result$x)
+```
+
+
+```{r}
+# Add Treatment information to PCA scores based on SampleID
+pc_scores$SampleID <- rownames(pc_scores)
+pc_scores_with_treatment <- merge(pc_scores, design_data, by = "SampleID")
+```
+
+```{r}
+plot(ggplot(pc_scores_with_treatment, aes(x = PC1, y = PC2, color = Treatment, label = SampleID)) +
+  geom_point(size = 2) +
+  geom_text(size = 3, hjust = -0.2, vjust = 0, color = "black") +
+  scale_color_manual(values = c("healthy" = "#1f78b4", "treated" = "#b2df8a")) +
+  labs(x = paste("PC1 (", round(summary(pca_result)$importance[2, 1] * 100, 2), "%)"),
+       y = paste("PC2 (", round(summary(pca_result)$importance[2, 2] * 100, 2), "%)"),
+       color = "Treatment") +
+  theme_minimal())
+```
+
+
+
+
