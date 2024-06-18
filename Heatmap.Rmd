@@ -1,0 +1,206 @@
+---
+title: "Heatmap"
+author: "Pumla"
+date: "2024-06-18"
+output: html_document
+---
+#Setting up environment 
+#Clean environment
+```{r}
+rm(list = ls(all.names = TRUE))
+```
+
+#load libraries
+```{r}
+library(DESeq2)
+library(pheatmap)
+library(dplyr)
+library(RColorBrewer)
+library(ggplot2)
+library(ggrepel)
+```
+
+#set the working directory
+```{r}
+setwd("~/inktset1/Heatmap")
+```
+
+#load the count data
+```{r}
+count_data <- read.csv('Counts.csv',header=TRUE,row.names=1)
+```
+
+#load the fpkm data
+```{r}
+fpkm_data <- read.csv('FPKM.csv', header=TRUE, row.names=1)
+```
+
+#check column names
+```{r}
+colnames(count_data)
+head(count_data, 50)
+```
+
+#load the sample information
+```{r}
+sample_info <- read.csv('Design.csv',header=TRUE,row.names=1)
+```
+
+#ensure there are no missing values in your count data
+```{r}
+sum(is.na(count_data))
+sum(is.na(sample_info))
+```
+
+#set factor levels
+```{r}
+sample_info$Treatment <- factor(sample_info$Treatment)
+```
+
+#create a deseq object and import the count data and sample information
+```{r}
+dds <- DESeqDataSetFromMatrix(countData = count_data,colData = sample_info, design = ~Treatment)
+```
+
+#Set the reference for the Treatment factor and add "peritumour" level
+```{r}
+dds$Treatment <- factor(dds$Treatment, levels = c("healthy", "treated"))
+```
+
+#filter the genes based on count per sample
+```{r}
+keep <- rowSums(counts(dds) >= 10) >= 3
+dds <- dds[keep,]
+```
+
+#perform the statistical test(s) to identify differentially expressed genes
+```{r}
+dds <- DESeq(dds)
+deseq_result <- results(dds)
+deseq_result
+```
+
+#change DESeq Object to R object(dataframe)
+```{r}
+deseq_result <- as.data.frame(deseq_result)
+class(deseq_result)
+head(deseq_result, 50)
+```
+
+#Order the results table by increasing p-value (the lowest p-value first, most statistically significant appearing first)
+```{r}
+deseq_result_ordered <- deseq_result[order(deseq_result$pvalue),]
+head(deseq_result_ordered, 50)
+```
+
+#extract the most differentially expressed genes due to the treatment
+#select genes with a significant change in gene expression (adjusted p-value below 0.05)
+#And log2fold change <1 and >1
+
+#step 1: filter based on p adjusted values
+```{r}
+filtered <- deseq_result %>% filter(deseq_result$padj < 0.05)
+```
+
+#step 2: filter based on fold changes. here we will use a threshold of 1
+```{r}
+filtered <- filtered %>% filter(abs(filtered$log2FoldChange) > 1)
+```
+
+
+```{r}
+dim(deseq_result)
+dim(filtered)   #those that are differentially expressed
+```
+
+#save the deseq result. we will save both the original data(res) and the filtered
+```{r}
+write.csv(deseq_result,'de_results.all.csv')
+write.csv(deseq_result,'de_results.filtered.csv')
+```
+
+#visualization 
+#Heatmap
+
+#Select top 30 genes with the lowest p-values
+```{r}
+top_hits <- row.names(deseq_result_ordered)[1:30]
+```
+
+
+```{r}
+rld <- rlog(dds, blind=FALSE)
+pheatmap(assay(rld)[top_hits,], 
+         cluster_rows=TRUE, 
+         show_rownames=TRUE, 
+         cluster_cols=TRUE, 
+         annotation_col=sample_info,
+         color=colorRampPalette(brewer.pal(9, "Blues"))(100),
+         fontsize_row=8, 
+         fontsize_col=8)
+```
+
+#Log transform FPKM data
+```{r}
+log_fpkm_data <- log2(fpkm_data + 1)
+```
+
+#Calculate Z-scores
+```{r}
+cal_z_score <- function(x) {(x - mean(x)) / sd(x)}
+zscore_all <- t(apply(log_fpkm_data, 1, cal_z_score))
+zscore_subset <- zscore_all[top_hits,]
+```
+
+#Heatmap of log-transformed FPKM values for the top 30 genes
+```{r}
+pheatmap(log_fpkm_data[top_hits,], 
+         cluster_rows=TRUE, 
+         show_rownames=TRUE, 
+         cluster_cols=TRUE, 
+         annotation_col=sample_info,
+         color=colorRampPalette(brewer.pal(9, "Blues"))(100),
+         fontsize_row=8, 
+         fontsize_col=8)
+```
+
+#Heatmap of Z-scores for the top 30 genes
+```{r}
+pheatmap(zscore_subset, 
+         cluster_rows=TRUE, 
+         show_rownames=TRUE, 
+         cluster_cols=TRUE, 
+         annotation_col=sample_info,
+         color=colorRampPalette(brewer.pal(9, "RdBu"))(100),
+         fontsize_row=8, 
+         fontsize_col=8)
+```
+
+#Select Top 30 Genes with the Lowest Adjusted p-Values (padj)
+# Order results by padj (adjusted p-value)
+```{r}
+deseq_result_ordered <- deseq_result[order(deseq_result$padj),]
+```
+
+#Select top 30 genes with the lowest padj values
+```{r}
+top_hits <- row.names(deseq_result_ordered)[1:30]
+```
+
+#Perform regularized log transformation
+```{r}
+rld <- rlog(dds, blind=FALSE)
+```
+
+#Heatmap of log-transformed counts for the top 30 genes
+```{r}
+pheatmap(assay(rld)[top_hits,], 
+         cluster_rows=TRUE, 
+         show_rownames=TRUE, 
+         cluster_cols=TRUE, 
+         annotation_col=sample_info,
+         color=colorRampPalette(brewer.pal(9, "Blues"))(100),
+         fontsize_row=8, 
+         fontsize_col=8)
+```
+
