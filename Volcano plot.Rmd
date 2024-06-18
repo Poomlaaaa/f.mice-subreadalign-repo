@@ -1,0 +1,261 @@
+---
+title: "Volcano Plot"
+author: "Pumla"
+date: "2024-06-18"
+output: html_document
+---
+
+#Setting up environment 
+#Clean environment
+
+```{r}
+rm(list = ls(all.names = TRUE)) # will clear all objects including hidden objects
+gc() # free up memory and report the memory usage
+options(max.print = .Machine$integer.max, scipen = 999, stringsAsFactors = F, dplyr.summarise.inform = F) # avoid truncated output in R console and scientific notation
+```
+
+
+# Load libraries
+```{r}
+library(edgeR)
+library(pheatmap)
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+```
+
+
+
+# Set the working directory
+```{r}
+setwd("~/inktset1/Gene names retrived")
+```
+
+
+# Load count data
+```{r}
+count_data <- read.csv('Counts.csv', header = TRUE, row.names = 1)
+```
+
+
+
+# Load sample information
+```{r}
+sample_info <- read.csv('Design.csv', header = TRUE, row.names = 1)
+```
+
+
+
+# Set up the DGEList object
+```{r}
+dge <- DGEList(counts = count_data, group = sample_info$Treatment)
+```
+
+
+
+# Filter lowly expressed genes
+```{r}
+keep <- rowSums(cpm(dge) > 1) >= 1
+dge <- dge[keep,]
+```
+
+
+
+# Estimate dispersion
+```{r}
+dge <- estimateGLMCommonDisp(dge)
+dge <- estimateGLMTrendedDisp(dge)
+dge <- estimateGLMTagwiseDisp(dge)
+```
+
+
+# Perform differential expression analysis
+```{r}
+fit <- glmQLFit(dge)
+qlf <- glmQLFTest(fit, coef = 2)
+```
+
+
+# Extract results
+```{r}
+edger_result <- topTags(qlf, n = nrow(dge))
+```
+
+# Save the edgeR result
+```{r}
+write.table(edger_result$table, "edger_results.csv", sep = ",", col.names = NA)
+```
+
+# Read in the CSV file
+```{r}
+edger_results <- read.csv("edger_results.csv")
+```
+
+# Rename the first column from "X" to "ensembl_gene_id"
+```{r}
+colnames(edger_results)[1] <- "ensembl_gene_id"
+```
+
+
+# Check the column names to confirm the change
+```{r}
+colnames(edger_results)
+```
+
+
+# Read the CSV file into a data frame
+```{r}
+
+fpkm_data <- read.csv("FPKM.csv")
+```
+
+
+#checking to make sure both file have Gene id as first column
+```{r}
+colnames(edger_results)
+```
+colnames(edger_results)
+
+# Function to remove versioned part from Ensembl gene IDs
+```{r}
+remove_version <- function(gene_ids) {
+  pattern <- "^(\\w+)\\.\\d+$"  # Regular expression to match the part before the dot
+  unversioned_ids <- sub(pattern, "\\1", gene_ids)  # Extract the part before the dot
+  return(unversioned_ids)  # Return the unversioned gene IDs
+}
+```
+
+
+# Apply the function to the ensembl_gene_id column in edger_results
+```{r}
+edger_results$ensembl_gene_id <- remove_version(edger_results$ensembl_gene_id)
+```
+
+
+
+#checking to make sure both file have Gene id as first column
+```{r}
+colnames(edger_results)
+```
+
+
+
+#now i want to assign gene names and gene type to my data set
+#Load biomaRt library
+```{r}
+library(biomaRt)
+```
+
+#Use Ensembl biomart for mouse
+```{r}
+ensembl <- useEnsembl(biomart = "ensembl", dataset = "mmusculus_gene_ensembl")  # for mouse
+```
+
+
+#Specify attributes to retrieve
+```{r}
+attributes <- c("ensembl_gene_id", "external_gene_name", "description")
+```
+
+
+#Retrieve gene information for mouse
+```{r}
+gene_info_mouse <- getBM(attributes = attributes, mart = ensembl)
+```
+
+
+#Write the gene_mapping_table to a CSV file
+```{r}
+write.csv(gene_info_mouse, file = "gene_info_mouse.csv", row.names = FALSE)
+```
+
+
+```{r}
+colnames(edger_results)
+
+colnames(gene_info_mouse)
+```
+
+
+#Assuming edger_results and gene_info_mouse dataframes are available
+
+#Merge based on ensembl_gene_id
+```{r}
+merged_data <- merge(edger_results, gene_info_mouse, by = "ensembl_gene_id")
+```
+
+
+# Write the merged data to a CSV file
+```{r}
+write.csv(merged_data, file = "merged_data.csv", row.names = FALSE)
+```
+
+
+```{r}
+colnames(merged_data)
+```
+
+
+# Sort merged_data by absolute log fold change (descending order)
+```{r}
+merged_data <- merged_data %>% 
+  arrange(desc(abs(logFC)))
+```
+
+
+# Select the top 10 most differentially expressed genes
+```{r}
+top_10_genes <- head(merged_data, 10)
+```
+
+
+# Create Volcano Plot
+```{r}
+plot(ggplot(merged_data, aes(x = logFC, y = -log10(FDR))) +
+  geom_point(color = ifelse(merged_data$FDR < 0.05, "red", "black"), alpha = 0.6) +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "blue") +
+  labs(x = "Log2 Fold Change", y = "-log10(FDR)", title = "Volcano Plot") +
+  theme_minimal() +
+  geom_text(data = filter(merged_data, FDR < 0.05), aes(label = external_gene_name), vjust = -0.5, color = "red"))
+```
+
+
+#Filter significant genes
+```{r}
+significant_genes <- merged_data %>% filter(FDR < 0.05)
+```
+
+
+#Select top 10 significant genes
+```{r}
+top_10_significant_genes <- head(significant_genes, 10)
+```
+
+
+#Create Volcano Plot
+```{r}
+plot(ggplot(merged_data, aes(x = logFC, y = -log10(FDR))) +
+  geom_point(color = ifelse(merged_data$FDR < 0.05, "red", "black"), alpha = 0.6) +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "blue") +
+  geom_text(data = top_10_significant_genes, aes(label = external_gene_name), vjust = -0.5, color = "red") +
+  labs(x = "Log2 Fold Change", y = "-log10(FDR)", title = "Volcano Plot") +
+  theme_minimal())
+```
+
+
+#Select top 5 significant genes
+```{r}
+top_5_significant_genes <- head(significant_genes, 5)
+```
+
+
+#Create Volcano Plot for Top 5 Significant Genes
+```{r}
+plot(ggplot(merged_data, aes(x = logFC, y = -log10(FDR))) +
+  geom_point(color = ifelse(merged_data$FDR < 0.05, "red", "black"), alpha = 0.6) +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "blue") +
+  geom_text(data = top_5_significant_genes, aes(label = external_gene_name), vjust = -0.5, color = "red") +
+  labs(x = "Log2 Fold Change", y = "-log10(FDR)", title = "Volcano Plot for Top 5 Significant Genes") +
+  theme_minimal())
+```
+
